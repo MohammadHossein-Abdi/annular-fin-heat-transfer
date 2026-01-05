@@ -1,56 +1,45 @@
 import numpy as np
-from scipy.integrate import solve_ivp
+from scipy.optimize import fsolve
 import matplotlib.pyplot as plt
 
-# --------------------------------------------------
+# -------------------------------------------------
 # Physical constants
-# --------------------------------------------------
-sigma = 5.670374419e-8     # Stefan–Boltzmann constant [W/m^2-K^4]
-epsilon = 0.9             # emissivity (vacuum radiation)
+# -------------------------------------------------
+sigma = 5.670374419e-8    # Stefan–Boltzmann constant [W/m^2-K^4]
+epsilon = 0.9            # emissivity (assumed, vacuum radiation)
 
-rho = 2700.0              # density [kg/m^3]
-cp  = 900.0               # specific heat [J/kg-K]
-
+# -------------------------------------------------
+# Problem parameters
+# -------------------------------------------------
 k0 = 1.6372
 alpha = 1.38505e-4
 
-# --------------------------------------------------
-# Geometry and conditions
-# --------------------------------------------------
-R0 = 0.05      # inner radius [m]
-R  = 0.20      # outer radius [m]
-delta = 0.005  # thickness [m]
+R0 = 0.05     # m
+R  = 0.20     # m
+delta = 0.005 # m
 
-U = 300.0      # surrounding temperature [K]
+Tb_inner = 450.0  # K
+Tb_outer = 350.0  # K
+U = 300.0         # K
 
-# --------------------------------------------------
-# Spatial grid
-# --------------------------------------------------
+# -------------------------------------------------
+# Discretization
+# -------------------------------------------------
 N = 120
 r = np.linspace(R0, R, N)
 dr = r[1] - r[0]
 
-# --------------------------------------------------
+# -------------------------------------------------
 # Thermal conductivity
-# --------------------------------------------------
+# -------------------------------------------------
 def k(T):
     return k0 * (1 + alpha * T)
 
-# --------------------------------------------------
-# Base temperature (startup condition)
-# --------------------------------------------------
-def T_base(t):
-    t_min = t / 60.0   # convert seconds to minutes
-    if t_min <= 15.0:
-        return 540.0 - 6.0 * t_min
-    else:
-        return 450.0
-
-# --------------------------------------------------
-# PDE → ODE system
-# --------------------------------------------------
-def dTdt(t, T):
-    dT = np.zeros_like(T)
+# -------------------------------------------------
+# Residual function
+# -------------------------------------------------
+def residual(T):
+    res = np.zeros_like(T)
 
     for i in range(1, N - 1):
         k_plus = k(T[i + 1])
@@ -63,47 +52,31 @@ def dTdt(t, T):
 
         radiation = (2 / delta) * epsilon * sigma * (T[i]**4 - U**4)
 
-        dT[i] = (conduction - radiation) / (rho * cp)
+        res[i] = conduction - radiation
 
-    # ----------------------------
-    # Inner boundary (Dirichlet)
-    # ----------------------------
-    T[0] = T_base(t)
-    dT[0] = 0.0
+    # Boundary conditions
+    res[0] = T[0] - Tb_inner
+    res[-1] = T[-1] - Tb_outer
 
-    # ----------------------------
-    # Outer boundary (radiative)
-    # -k dT/dr = σ(T⁴ - U⁴)
-    # ----------------------------
-    dTdr_R = -(sigma / k(T[-1])) * (T[-1]**4 - U**4)
-    T[-1] = T[-2] + dr * dTdr_R
-    dT[-1] = 0.0
+    return res
 
-    return dT
+# -------------------------------------------------
+# Initial guess
+# -------------------------------------------------
+T_guess = np.linspace(Tb_inner, Tb_outer, N)
 
-# --------------------------------------------------
-# Initial condition
-# --------------------------------------------------
-T0 = np.ones(N) * 540.0
+# -------------------------------------------------
+# Solve nonlinear system
+# -------------------------------------------------
+T_solution = fsolve(residual, T_guess)
 
-# --------------------------------------------------
-# Time integration
-# --------------------------------------------------
-t_span = (0, 3600)  # 1 hour [s]
-t_eval = np.linspace(0, 3600, 200)
-
-solution = solve_ivp(dTdt, t_span, T0, t_eval=t_eval, method='BDF')
-
-# --------------------------------------------------
-# Plot temperature distribution at selected times
-# --------------------------------------------------
+# -------------------------------------------------
+# Plot
+# -------------------------------------------------
 plt.figure()
-for idx in [0, 50, 100, 199]:
-    plt.plot(r, solution.y[:, idx], label=f"t = {solution.t[idx]/60:.1f} min")
-
+plt.plot(r, T_solution, linewidth=2)
 plt.xlabel("Radius r (m)")
 plt.ylabel("Temperature T (K)")
-plt.title("Transient Temperature Distribution Along Fin Radius")
-plt.legend()
+plt.title("Steady-State Temperature Distribution in Annular Fin")
 plt.grid(True)
 plt.show()
